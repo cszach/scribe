@@ -145,20 +145,18 @@ as a fallback.
 
 ## Configuration
 
-Everything tunable lives in `.env`. All variables are optional except
-`GROQ_API_KEY`; see `.env.example` for the full list with documented defaults.
-The notable ones:
+Everything tunable lives in `.env`; see `.env.example` for the full list with
+documented defaults. All variables are optional except `GROQ_API_KEY`.
 
-- `SCRIBE_HOTKEY` — push-to-talk key, any name from `evdev.ecodes` (default
-  `KEY_RIGHTCTRL`).
-- `SCRIBE_MIN_DURATION_S`, `SCRIBE_MAX_DURATION_S` — short-press cutoff and hard
-  ceiling.
-- `SCRIBE_MODEL` — any Groq Whisper variant.
-- `SCRIBE_PROMPT` — comma-separated vocabulary to bias Whisper toward your
-  domain-specific proper nouns (project names, libraries, coworker names).
-- `SCRIBE_PASTE_MODE` — see [Auto-paste modes](#auto-paste-modes).
-- `SCRIBE_NO_AUTO_PASTE` — set to `1` to skip auto-paste and use the clipboard
-  only.
+| Variable                | Default                  | Description                                                                          |
+| ----------------------- | ------------------------ | ------------------------------------------------------------------------------------ |
+| `SCRIBE_HOTKEY`         | `KEY_RIGHTCTRL`          | Push-to-talk key, any name from `evdev.ecodes`.                                      |
+| `SCRIBE_MIN_DURATION_S` | `0.3`                    | Holds shorter than this are dropped as accidental taps.                              |
+| `SCRIBE_MAX_DURATION_S` | `60.0`                   | Recording auto-stops at this point.                                                  |
+| `SCRIBE_MODEL`          | `whisper-large-v3-turbo` | Any Groq Whisper variant.                                                            |
+| `SCRIBE_PROMPT`         | _empty_                  | Comma-separated vocabulary to bias Whisper toward your domain-specific proper nouns. |
+| `SCRIBE_PASTE_MODE`     | `shortcut`               | Paste mechanism (see [Auto-paste modes](#auto-paste-modes)).                         |
+| `SCRIBE_NO_AUTO_PASTE`  | `0`                      | Set to `1` to skip auto-paste and use the clipboard only.                            |
 
 ## Run on login (optional)
 
