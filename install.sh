@@ -528,7 +528,37 @@ else
   ok "Python dependencies installed"
 fi
 
-# ───── 4. autostart ─────────────────────────────────────────────────────
+# ───── 4. scribe CLI ────────────────────────────────────────────────────
+hdr "Installing scribe command"
+
+BIN_DIR="$HOME/.local/bin"
+BIN_FILE="$BIN_DIR/scribe"
+CLI_SRC="$REPO_DIR/bin/scribe"
+
+if [[ ! -f "$CLI_SRC" ]]; then
+  err "Missing $CLI_SRC — repo is incomplete."
+  exit 1
+fi
+
+if (( DRY_RUN )); then
+  [[ -d "$BIN_DIR" ]] || dry "mkdir -p $BIN_DIR"
+  dry "install scribe CLI at $BIN_FILE (SCRIBE_DIR=$REPO_DIR)"
+else
+  mkdir -p "$BIN_DIR"
+  # Bash parameter expansion handles any character cleanly, unlike sed.
+  CLI_TEMPLATE=$(<"$CLI_SRC")
+  printf '%s\n' "${CLI_TEMPLATE//__SCRIBE_DIR__/$REPO_DIR}" > "$BIN_FILE"
+  chmod +x "$BIN_FILE"
+  ok "Installed $BIN_FILE"
+fi
+
+if ! printf '%s' ":$PATH:" | grep -q ":$BIN_DIR:"; then
+  warn "$BIN_DIR is not on your PATH."
+  info "Add this to your shell rc (~/.bashrc, ~/.zshrc):"
+  printf "      %sexport PATH=\"\$HOME/.local/bin:\$PATH\"%s\n" "$D" "$N"
+fi
+
+# ───── 5. autostart ─────────────────────────────────────────────────────
 hdr "Autostart"
 
 AUTOSTART_IDX=$(select_yes_no "Install scribe as a systemd user service (autostart on login)?" 0)
@@ -589,12 +619,16 @@ else
   AUTOSTARTED=0
 fi
 
-# ───── 5. useful commands (only if autostart was set up) ────────────────
+# ───── 6. useful commands (only if autostart was set up) ────────────────
 if (( AUTOSTARTED )); then
   hdr "Useful commands"
+  printf "      Start:      %sscribe start%s\n" "$D" "$N"
+  printf "      Stop:       %sscribe stop%s\n" "$D" "$N"
+  printf "      Restart:    %sscribe restart%s\n" "$D" "$N"
+  printf "      Status:     %sscribe status%s\n" "$D" "$N"
+  printf "      Test mic:   %sscribe test%s\n" "$D" "$N"
+  printf "      Add vocab:  %sscribe add \"Claude Code\" Anthropic OAuth Kubernetes%s\n" "$D" "$N"
   printf "      Tail logs:  %sjournalctl --user -u scribe -f%s\n" "$D" "$N"
-  printf "      Restart:    %ssystemctl --user restart scribe%s\n" "$D" "$N"
-  printf "      Stop:       %ssystemctl --user stop scribe%s\n" "$D" "$N"
   printf "      Disable:    %ssystemctl --user disable --now scribe%s\n" "$D" "$N"
 fi
 

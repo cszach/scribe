@@ -172,6 +172,29 @@ documented defaults. All variables are optional except `GROQ_API_KEY`.
 | `SCRIBE_PASTE_MODE`     | `shortcut`               | Paste mechanism (see [Auto-paste modes](#auto-paste-modes)).                         |
 | `SCRIBE_NO_AUTO_PASTE`  | `0`                      | Set to `1` to skip auto-paste and use the clipboard only.                            |
 
+## The `scribe` command
+
+`install.sh` drops a small wrapper at `~/.local/bin/scribe` that talks to the
+systemd user service and edits `.env` for you.
+
+| Command                | What it does                                                               |
+| ---------------------- | -------------------------------------------------------------------------- |
+| `scribe start`         | Start the systemd user service.                                            |
+| `scribe stop`          | Stop the systemd user service.                                             |
+| `scribe restart`       | Restart the systemd user service.                                          |
+| `scribe status`        | Compact status: state, pid, uptime, autostart, key config, recent logs.    |
+| `scribe test`          | Record + transcribe once to verify the pipeline. Doesn't touch the daemon. |
+| `scribe add <term>...` | Append terms to `SCRIBE_PROMPT` in `.env` (dedup'd).                       |
+
+Multi-word terms must be quoted so the shell hands them through as one arg:
+
+```sh
+scribe add "Claude Code" Anthropic OAuth Kubernetes
+```
+
+If `~/.local/bin` isn't on your `PATH`, install.sh will tell you to add it to
+your shell rc.
+
 ## Run on login
 
 `install.sh` sets this up for you if you answer **Yes** to the autostart prompt.

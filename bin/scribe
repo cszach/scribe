@@ -1,0 +1,297 @@
+#!/usr/bin/env bash
+# scribe — control the Scribe dictation daemon.
+#
+# Installed by install.sh; __SCRIBE_DIR__ is replaced at install time with the
+# absolute path of the repo so this script can find .env.
+
+set -euo pipefail
+
+SCRIBE_DIR="__SCRIBE_DIR__"
+ENV_FILE="$SCRIBE_DIR/.env"
+SERVICE="scribe.service"
+
+if [[ -t 1 ]]; then
+  R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'
+  B=$'\033[1m'; D=$'\033[2m'; N=$'\033[0m'
+else
+  R=; G=; Y=; B=; D=; N=
+fi
+
+# Print a one-line summary of the current service state. Best-effort; if
+# `systemctl status` parsing fails (locale, systemd version), we degrade
+# gracefully to just the state word.
+status_line() {
+  local state pid uptime
+  state=$(systemctl --user is-active "$SERVICE" 2>/dev/null || true)
+  pid=$(systemctl --user show -p MainPID --value "$SERVICE" 2>/dev/null || true)
+  uptime=$(systemctl --user status "$SERVICE" --no-pager 2>/dev/null \
+           | sed -nE 's/.*Active: active \([^)]+\) since [^;]+; (.+) ago.*/\1/p' \
+           | head -1 || true)
+
+  case "$state" in
+    active)
+      if [[ -n "$uptime" && -n "$pid" && "$pid" != "0" ]]; then
+        printf "  %s●%s scribe is %s%srunning%s (pid %s, up %s)\n" \
+          "$G" "$N" "$G" "$B" "$N" "$pid" "$uptime"
+      elif [[ -n "$pid" && "$pid" != "0" ]]; then
+        printf "  %s●%s scribe is %s%srunning%s (pid %s)\n" \
+          "$G" "$N" "$G" "$B" "$N" "$pid"
+      else
+        printf "  %s●%s scribe is %s%srunning%s\n" "$G" "$N" "$G" "$B" "$N"
+      fi
+      ;;
+    inactive)
+      printf "  %s○%s scribe is %sstopped%s\n" "$D" "$N" "$D" "$N"
+      ;;
+    failed)
+      printf "  %s✗%s scribe %sfailed%s — see: journalctl --user -u scribe -n 50\n" \
+        "$R" "$N" "$R$B" "$N"
+      ;;
+    activating)
+      printf "  %s●%s scribe is %sstarting…%s\n" "$Y" "$N" "$Y" "$N"
+      ;;
+    deactivating)
+      printf "  %s●%s scribe is %sstopping…%s\n" "$Y" "$N" "$Y" "$N"
+      ;;
+    "")
+      printf "  %s✗%s %s not found — run install.sh to enable autostart\n" \
+        "$R" "$N" "$SERVICE"
+      ;;
+    *)
+      printf "  %s●%s scribe: %s\n" "$Y" "$N" "$state"
+      ;;
+  esac
+}
+
+cmd_start() {
+  local state
+  state=$(systemctl --user is-active "$SERVICE" 2>/dev/null || true)
+  if [[ "$state" == "active" ]]; then
+    printf "  %s●%s already running.\n" "$Y" "$N"
+    status_line
+    return 0
+  fi
+  printf "  %s→ starting scribe…%s\n" "$D" "$N"
+  if ! systemctl --user start "$SERVICE"; then
+    printf "  %s✗%s failed to start — see: journalctl --user -u scribe -n 50\n" "$R" "$N"
+    exit 1
+  fi
+  status_line
+}
+
+cmd_stop() {
+  local state
+  state=$(systemctl --user is-active "$SERVICE" 2>/dev/null || true)
+  if [[ "$state" != "active" && "$state" != "activating" ]]; then
+    printf "  %s○%s already stopped.\n" "$D" "$N"
+    return 0
+  fi
+  printf "  %s→ stopping scribe…%s\n" "$D" "$N"
+  if ! systemctl --user stop "$SERVICE"; then
+    printf "  %s✗%s failed to stop.\n" "$R" "$N"
+    exit 1
+  fi
+  printf "  %s○%s scribe %sstopped%s.\n" "$D" "$N" "$D" "$N"
+}
+
+cmd_restart() {
+  printf "  %s→ restarting scribe…%s\n" "$D" "$N"
+  if ! systemctl --user restart "$SERVICE"; then
+    printf "  %s✗%s failed to restart — see: journalctl --user -u scribe -n 50\n" "$R" "$N"
+    exit 1
+  fi
+  status_line
+}
+
+cmd_test() {
+  local py="$SCRIBE_DIR/.venv/bin/python"
+  local helper="$SCRIBE_DIR/scribe_test.py"
+  if [[ ! -x "$py" ]]; then
+    printf "  %s✗%s venv not found at %s/.venv — run install.sh first\n" \
+      "$R" "$N" "$SCRIBE_DIR" >&2
+    exit 1
+  fi
+  if [[ ! -f "$helper" ]]; then
+    printf "  %s✗%s %s missing — repo is incomplete\n" "$R" "$N" "$helper" >&2
+    exit 1
+  fi
+  exec "$py" "$helper"
+}
+
+# Read a key from .env, ignoring commented lines. Echoes the value, or empty.
+env_get() {
+  local key=$1
+  [[ -f "$ENV_FILE" ]] || return 0
+  grep -E "^[[:space:]]*$key=" "$ENV_FILE" 2>/dev/null \
+    | tail -1 | cut -d= -f2- || true
+}
+
+cmd_status() {
+  status_line
+
+  local enabled enabled_color enabled_text
+  enabled=$(systemctl --user is-enabled "$SERVICE" 2>/dev/null || true)
+  case "$enabled" in
+    enabled)         enabled_color="$G"; enabled_text="enabled" ;;
+    disabled|static) enabled_color="$Y"; enabled_text="$enabled" ;;
+    "")              enabled_color="$D"; enabled_text="unknown" ;;
+    *)               enabled_color="$D"; enabled_text="$enabled" ;;
+  esac
+  printf "  %sAutostart:%s   %s%s%s\n" "$D" "$N" "$enabled_color" "$enabled_text" "$N"
+
+  local hotkey paste
+  hotkey=$(env_get SCRIBE_HOTKEY)
+  if [[ -z "$hotkey" ]]; then
+    printf "  %sHotkey:%s      KEY_RIGHTCTRL %s(default)%s\n" "$D" "$N" "$D" "$N"
+  else
+    printf "  %sHotkey:%s      %s\n" "$D" "$N" "$hotkey"
+  fi
+
+  paste=$(env_get SCRIBE_PASTE_MODE)
+  if [[ -z "$paste" ]]; then
+    printf "  %sPaste mode:%s  shortcut %s(default)%s\n" "$D" "$N" "$D" "$N"
+  else
+    printf "  %sPaste mode:%s  %s\n" "$D" "$N" "$paste"
+  fi
+
+  echo
+  printf "  %sRecent logs:%s\n" "$D" "$N"
+  local logs line
+  logs=$(journalctl --user -u "$SERVICE" --no-pager -n 6 -o cat 2>/dev/null || true)
+  if [[ -n "$logs" ]]; then
+    while IFS= read -r line; do
+      printf "    %s│%s %s\n" "$D" "$N" "$line"
+    done <<< "$logs"
+  else
+    printf "    %s(no logs yet)%s\n" "$D" "$N"
+  fi
+}
+
+usage() {
+  cat <<EOF
+Usage: scribe <command> [args]
+
+Commands:
+  start                Start the scribe systemd user service.
+  stop                 Stop the scribe systemd user service.
+  restart              Restart the scribe systemd user service.
+  status               Show scribe service status.
+  test                 Record once and transcribe to verify the pipeline.
+                       Does not copy, paste, or touch the daemon.
+  add <term>...        Add one or more terms to SCRIBE_PROMPT in .env.
+                       Wrap multi-word terms in quotes:
+                         scribe add "Claude Code" Anthropic OAuth Kubernetes
+
+.env: $ENV_FILE
+EOF
+}
+
+cmd_add() {
+  if [[ $# -eq 0 ]]; then
+    echo "scribe add: nothing to add" >&2
+    echo "usage: scribe add <term>... — wrap multi-word terms in quotes" >&2
+    exit 2
+  fi
+  if [[ ! -f "$ENV_FILE" ]]; then
+    echo "scribe: .env not found at $ENV_FILE" >&2
+    exit 1
+  fi
+
+  # Locate SCRIBE_PROMPT (commented or not). Last match wins so a real setting
+  # below a commented placeholder takes precedence.
+  local line_idx="" current=""
+  line_idx=$(grep -nE '^[[:space:]]*#?[[:space:]]*SCRIBE_PROMPT=' "$ENV_FILE" \
+             | tail -1 | cut -d: -f1 || true)
+  if [[ -n "$line_idx" ]]; then
+    current=$(sed -n "${line_idx}p" "$ENV_FILE" \
+              | sed -E 's/^[[:space:]]*#?[[:space:]]*SCRIBE_PROMPT=//')
+    current="${current%\"}"; current="${current#\"}"
+  fi
+
+  # Build a case-insensitive set of existing terms for dedup. Scope IFS to just
+  # the `read` so it doesn't leak into "${added[*]}" below.
+  declare -A seen=()
+  if [[ -n "$current" ]]; then
+    local -a parts
+    IFS=',' read -ra parts <<< "$current"
+    local c
+    for c in "${parts[@]}"; do
+      c="${c#"${c%%[![:space:]]*}"}"
+      c="${c%"${c##*[![:space:]]}"}"
+      [[ -n "$c" ]] && seen[${c,,}]=1
+    done
+  fi
+
+  local added=() item trimmed
+  for item in "$@"; do
+    trimmed="${item#"${item%%[![:space:]]*}"}"
+    trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+    [[ -z "$trimmed" ]] && continue
+    if [[ -n "${seen[${trimmed,,}]+x}" ]]; then
+      continue
+    fi
+    seen[${trimmed,,}]=1
+    added+=("$trimmed")
+  done
+
+  if (( ${#added[@]} == 0 )); then
+    echo "Nothing new to add — all terms already present in SCRIBE_PROMPT."
+    return 0
+  fi
+
+  local joined_new="" i
+  for i in "${!added[@]}"; do
+    if (( i == 0 )); then
+      joined_new="${added[$i]}"
+    else
+      joined_new="$joined_new, ${added[$i]}"
+    fi
+  done
+
+  local new_value
+  if [[ -n "$current" ]]; then
+    new_value="$current, $joined_new"
+  else
+    new_value="$joined_new"
+  fi
+
+  local new_line="SCRIBE_PROMPT=$new_value"
+
+  if [[ -n "$line_idx" ]]; then
+    # Pass replacement via ENVIRON so awk doesn't interpret backslashes.
+    local tmp
+    tmp=$(mktemp)
+    NEW_LINE="$new_line" awk -v idx="$line_idx" \
+      'NR==idx {print ENVIRON["NEW_LINE"]; next} {print}' \
+      "$ENV_FILE" > "$tmp"
+    mv "$tmp" "$ENV_FILE"
+  else
+    printf '\nSCRIBE_PROMPT=%s\n' "$new_value" >> "$ENV_FILE"
+  fi
+
+  printf 'Added: %s\n' "$joined_new"
+  if systemctl --user is-active --quiet "$SERVICE" 2>/dev/null; then
+    echo "Run 'scribe restart' to pick up the new vocab."
+  fi
+}
+
+case "${1:-}" in
+  start)   cmd_start ;;
+  stop)    cmd_stop ;;
+  restart) cmd_restart ;;
+  status)  cmd_status ;;
+  test)    cmd_test ;;
+  add)
+    shift
+    cmd_add "$@"
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    echo "scribe: unknown command: $1" >&2
+    echo >&2
+    usage >&2
+    exit 2
+    ;;
+esac
