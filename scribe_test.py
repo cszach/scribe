@@ -11,6 +11,7 @@ import os
 import sys
 import time
 import wave
+from typing import NoReturn
 
 import numpy as np
 import sounddevice as sd
@@ -33,7 +34,7 @@ else:
     R = G = Y = D = N = ""
 
 
-def die(msg: str, code: int = 1) -> None:
+def die(msg: str, code: int = 1) -> NoReturn:
     print(f"  {R}✗{N} {msg}", file=sys.stderr)
     sys.exit(code)
 
@@ -51,7 +52,7 @@ def main() -> int:
 
     chunks: list[np.ndarray] = []
 
-    def callback(indata, frames, time_info, status) -> None:
+    def callback(indata, _frames, _time_info, status) -> None:
         if status:
             print(f"  {Y}audio status: {status}{N}", file=sys.stderr)
         chunks.append(indata.copy())

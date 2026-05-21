@@ -1,0 +1,9 @@
+{
+  "include": ["scribe.py", "scribe_test.py"],
+  "exclude": [".venv", "__pycache__"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "reportUnusedParameter": "warning"
+}

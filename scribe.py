@@ -67,7 +67,7 @@ class Recording:
         self.watchdog.daemon = True
         self.watchdog.start()
 
-    def _on_audio(self, indata, frames, time_info, status) -> None:
+    def _on_audio(self, indata, _frames, _time_info, status) -> None:
         if status:
             log.warning("audio status: %s", status)
         self.chunks.append(indata.copy())
@@ -335,7 +335,7 @@ def udev_watcher() -> None:
         try_watch(path)
 
 
-def shutdown(signum, frame) -> None:
+def shutdown(_signum, _frame) -> None:
     log.info("shutting down")
     stop_event.set()
     with state_lock:
