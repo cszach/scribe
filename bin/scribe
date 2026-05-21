@@ -11,11 +11,102 @@ ENV_FILE="$SCRIBE_DIR/.env"
 SERVICE="scribe.service"
 
 if [[ -t 1 ]]; then
-  R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'
+  R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; C=$'\033[36m'; M=$'\033[35m'
   B=$'\033[1m'; D=$'\033[2m'; N=$'\033[0m'
 else
-  R=; G=; Y=; B=; D=; N=
+  R=; G=; Y=; C=; M=; B=; D=; N=
 fi
+
+print_logo() {
+  [[ -t 1 ]] || return 0
+  printf '%s' "$M"
+  cat <<'BANNER'
+
+   ███████╗ ██████╗██████╗ ██╗██████╗ ███████╗
+   ██╔════╝██╔════╝██╔══██╗██║██╔══██╗██╔════╝
+   ███████╗██║     ██████╔╝██║██████╔╝█████╗
+   ╚════██║██║     ██╔══██╗██║██╔══██╗██╔══╝
+   ███████║╚██████╗██║  ██║██║██████╔╝███████╗
+   ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝╚═════╝ ╚══════╝
+BANNER
+  printf '%s' "$N"
+  printf "   %sPush-to-talk dictation for Linux, powered by Groq Whisper%s\n\n" "$D" "$N"
+}
+
+# Arrow-key Yes/No selector. Echoes 0 (Yes) or 1 (No).
+# Falls back to a Y/n prompt if there's no tty.
+select_yes_no() {
+  local prompt=$1
+  local selected=${2:-0}
+  local options=("Yes" "No")
+  local count=2
+  local key rest old_stty i ans
+
+  if [[ ! -t 0 ]] || [[ ! -e /dev/tty ]]; then
+    local hint="Y/n"
+    (( selected == 1 )) && hint="y/N"
+    printf "  %s%s%s %s[%s]%s: " "$C" "$prompt" "$N" "$D" "$hint" "$N" >&2
+    read -r ans
+    if [[ -z $ans ]]; then
+      echo "$selected"
+    elif [[ $ans =~ ^[Yy] ]]; then
+      echo 0
+    else
+      echo 1
+    fi
+    return
+  fi
+
+  old_stty=$(stty -g </dev/tty)
+  stty -icanon -echo min 1 time 0 </dev/tty
+  printf '\033[?25l' >/dev/tty
+  trap '
+    stty "$old_stty" </dev/tty 2>/dev/null
+    printf "\033[?25h" >/dev/tty 2>/dev/null
+    exit 130
+  ' INT
+
+  draw_yn() {
+    {
+      printf "  %s%s%s\n" "$C" "$prompt" "$N"
+      printf "    "
+      for i in "${!options[@]}"; do
+        if (( i == selected )); then
+          printf "%s❯%s %s%s%s    " "$M" "$N" "$B$C" "${options[i]}" "$N"
+        else
+          printf "  %s%s%s    " "$D" "${options[i]}" "$N"
+        fi
+      done
+      printf "\n"
+      printf "  %s←→ navigate, enter to select%s\n" "$D" "$N"
+    } >/dev/tty
+  }
+
+  draw_yn
+  while true; do
+    IFS= read -rsn1 key </dev/tty
+    if [[ $key == $'\x1b' ]]; then
+      IFS= read -rsn2 -t 0.05 rest </dev/tty || rest=""
+      case $rest in
+        '[C') (( selected = (selected + 1) % count ))
+              printf "\033[3A" >/dev/tty; draw_yn ;;
+        '[D') (( selected = (selected - 1 + count) % count ))
+              printf "\033[3A" >/dev/tty; draw_yn ;;
+      esac
+    elif [[ -z $key ]]; then
+      {
+        printf "\033[3A"
+        printf '\033[J'
+        printf "  %s%s%s %s%s%s\n" "$C" "$prompt" "$N" "$B" "${options[selected]}" "$N"
+      } >/dev/tty
+      stty "$old_stty" </dev/tty
+      printf "\033[?25h" >/dev/tty
+      trap - INT
+      echo "$selected"
+      return
+    fi
+  done
+}
 
 # Print a one-line summary of the current service state. Best-effort; if
 # `systemctl status` parsing fails (locale, systemd version), we degrade
@@ -168,24 +259,17 @@ cmd_status() {
 }
 
 usage() {
-  cat <<EOF
-Usage: scribe <command> [args]
-
-Commands:
-  start                Start the scribe systemd user service.
-  stop                 Stop the scribe systemd user service.
-  restart              Restart the scribe systemd user service.
-  status               Show scribe service status.
-  test                 Record once and transcribe to verify the pipeline.
-                       Does not copy, paste, or touch the daemon.
-  add <term>...        Add one or more terms to SCRIBE_PROMPT in .env.
-                       Wrap multi-word terms in quotes:
-                         scribe add "Claude Code" Anthropic OAuth Kubernetes
-  uninstall [-y]       Remove the systemd unit and the CLI wrapper. Leaves
-                       the repo (and .env) for you to delete manually.
-
-.env: $ENV_FILE
-EOF
+  print_logo
+  printf "  %sUsage:%s %sscribe%s <command> [args]\n\n" "$B" "$N" "$C$B" "$N"
+  printf "  %sCommands:%s\n" "$B" "$N"
+  printf "      %sstart%s            Start the scribe systemd user service.\n" "$C$B" "$N"
+  printf "      %sstop%s             Stop the scribe systemd user service.\n" "$C$B" "$N"
+  printf "      %srestart%s          Restart the scribe systemd user service.\n" "$C$B" "$N"
+  printf "      %sstatus%s           Show scribe service status.\n" "$C$B" "$N"
+  printf "      %stest%s             Record once and transcribe to verify the pipeline.\n" "$C$B" "$N"
+  printf "      %sadd%s <term>…      Add terms to SCRIBE_PROMPT in .env (quote multi-word).\n" "$C$B" "$N"
+  printf "      %suninstall%s [-y]   Remove the systemd unit and the CLI wrapper.\n\n" "$C$B" "$N"
+  printf "  %s.env:%s %s\n\n" "$D" "$N" "$ENV_FILE"
 }
 
 cmd_add() {
@@ -271,9 +355,13 @@ cmd_add() {
     printf '\nSCRIBE_PROMPT=%s\n' "$new_value" >> "$ENV_FILE"
   fi
 
-  printf 'Added: %s\n' "$joined_new"
+  printf "  %s✓%s Added: %s%s%s\n\n" "$G" "$N" "$B" "$joined_new" "$N"
+  printf "  %sSCRIBE_PROMPT now reads:%s\n" "$D" "$N"
+  printf "  %s%s%s\n" "$C" "$new_value" "$N"
   if systemctl --user is-active --quiet "$SERVICE" 2>/dev/null; then
-    echo "Run 'scribe restart' to pick up the new vocab."
+    echo
+    printf "  %s💡 run %sscribe restart%s%s to pick up the new vocab.%s\n" \
+      "$D" "$C$B" "$N$D" "$D" "$N"
   fi
 }
 
@@ -318,13 +406,12 @@ cmd_uninstall() {
   echo
 
   if (( ! force )); then
-    printf "Continue? [y/N]: "
-    local ans
-    read -r ans
-    case "$ans" in
-      y|Y|yes|Yes|YES) ;;
-      *) echo "Cancelled."; return 0 ;;
-    esac
+    local choice
+    choice=$(select_yes_no "Continue?" 1)
+    if (( choice != 0 )); then
+      printf "  %sCancelled.%s\n" "$D" "$N"
+      return 0
+    fi
   fi
 
   if [[ -f "$unit_file" ]]; then
