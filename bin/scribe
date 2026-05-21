@@ -181,6 +181,8 @@ Commands:
   add <term>...        Add one or more terms to SCRIBE_PROMPT in .env.
                        Wrap multi-word terms in quotes:
                          scribe add "Claude Code" Anthropic OAuth Kubernetes
+  uninstall [-y]       Remove the systemd unit and the CLI wrapper. Leaves
+                       the repo (and .env) for you to delete manually.
 
 .env: $ENV_FILE
 EOF
@@ -275,6 +277,82 @@ cmd_add() {
   fi
 }
 
+cmd_uninstall() {
+  local force=0
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      -y|--yes) force=1 ;;
+      *)
+        echo "scribe uninstall: unknown arg: $arg" >&2
+        echo "usage: scribe uninstall [-y]" >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  local unit_file="$HOME/.config/systemd/user/$SERVICE"
+  local self_path="$HOME/.local/bin/scribe"
+  local items=()
+
+  [[ -f "$unit_file" ]] && items+=("systemd unit:  $unit_file")
+  [[ -f "$self_path" ]] && items+=("CLI wrapper:   $self_path")
+
+  if (( ${#items[@]} == 0 )); then
+    echo "Nothing to uninstall — no unit file or CLI wrapper found."
+    printf "Repo at %s is untouched (delete with: rm -rf %s).\n" \
+      "$SCRIBE_DIR" "$SCRIBE_DIR"
+    return 0
+  fi
+
+  printf "%sWill remove:%s\n" "$B" "$N"
+  local i
+  for i in "${items[@]}"; do
+    printf "  %s-%s %s\n" "$D" "$N" "$i"
+  done
+  echo
+  printf "%sWill NOT touch:%s\n" "$B" "$N"
+  printf "  %s-%s repo at %s (with .venv, .env, scribe.py)\n" "$D" "$N" "$SCRIBE_DIR"
+  printf "  %s-%s system packages (ydotool, wl-clipboard)\n" "$D" "$N"
+  printf "  %s-%s your membership in the 'input' group\n" "$D" "$N"
+  echo
+
+  if (( ! force )); then
+    printf "Continue? [y/N]: "
+    local ans
+    read -r ans
+    case "$ans" in
+      y|Y|yes|Yes|YES) ;;
+      *) echo "Cancelled."; return 0 ;;
+    esac
+  fi
+
+  if [[ -f "$unit_file" ]]; then
+    if systemctl --user is-active --quiet "$SERVICE" 2>/dev/null; then
+      printf "  %s→ stopping scribe…%s\n" "$D" "$N"
+      systemctl --user stop "$SERVICE" || true
+    fi
+    if systemctl --user is-enabled --quiet "$SERVICE" 2>/dev/null; then
+      printf "  %s→ disabling autostart…%s\n" "$D" "$N"
+      systemctl --user disable "$SERVICE" >/dev/null 2>&1 || true
+    fi
+    rm -f "$unit_file"
+    systemctl --user daemon-reload || true
+    printf "  %s✓%s removed %s\n" "$G" "$N" "$unit_file"
+  fi
+
+  # Remove the wrapper last; Linux keeps the inode alive while we're running.
+  if [[ -f "$self_path" ]]; then
+    rm -f "$self_path"
+    printf "  %s✓%s removed %s\n" "$G" "$N" "$self_path"
+  fi
+
+  echo
+  printf "  %s%sScribe uninstalled.%s\n" "$B" "$G" "$N"
+  printf "  %sTo finish, delete the repo (contains .env with your GROQ_API_KEY):%s\n" "$D" "$N"
+  printf "    %scd && rm -rf %s%s\n" "$D" "$SCRIBE_DIR" "$N"
+}
+
 case "${1:-}" in
   start)   cmd_start ;;
   stop)    cmd_stop ;;
@@ -284,6 +362,10 @@ case "${1:-}" in
   add)
     shift
     cmd_add "$@"
+    ;;
+  uninstall)
+    shift
+    cmd_uninstall "$@"
     ;;
   -h|--help|help|"")
     usage

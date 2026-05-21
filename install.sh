@@ -629,7 +629,7 @@ if (( AUTOSTARTED )); then
   printf "      Test mic:   %sscribe test%s\n" "$D" "$N"
   printf "      Add vocab:  %sscribe add \"Claude Code\" Anthropic OAuth Kubernetes%s\n" "$D" "$N"
   printf "      Tail logs:  %sjournalctl --user -u scribe -f%s\n" "$D" "$N"
-  printf "      Disable:    %ssystemctl --user disable --now scribe%s\n" "$D" "$N"
+  printf "      Uninstall:  %sscribe uninstall%s\n" "$D" "$N"
 fi
 
 # ───── done (no clear; this stays on screen) ────────────────────────────

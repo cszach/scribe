@@ -185,6 +185,7 @@ systemd user service and edits `.env` for you.
 | `scribe status`        | Compact status: state, pid, uptime, autostart, key config, recent logs.    |
 | `scribe test`          | Record + transcribe once to verify the pipeline. Doesn't touch the daemon. |
 | `scribe add <term>...` | Append terms to `SCRIBE_PROMPT` in `.env` (dedup'd).                       |
+| `scribe uninstall`     | Remove the systemd unit and the CLI wrapper (the repo stays).              |
 
 Multi-word terms must be quoted so the shell hands them through as one arg:
 
