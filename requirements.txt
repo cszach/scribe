@@ -3,3 +3,4 @@ sounddevice
 evdev
 python-dotenv
 numpy
+pyudev

@@ -18,6 +18,7 @@ import wave
 
 import evdev
 import numpy as np
+import pyudev
 import sounddevice as sd
 from dotenv import load_dotenv
 from evdev import InputDevice, ecodes
@@ -42,6 +43,11 @@ state_lock = threading.Lock()
 
 # Active recording session — None when idle.
 session: "Recording | None" = None
+
+# Paths we're currently watching. Owned by try_watch (adds) and watch_device's
+# finally (removes). Lock protects the set itself, not the spawned threads.
+watched_paths: set[str] = set()
+watched_lock = threading.Lock()
 
 
 class Recording:
@@ -83,21 +89,44 @@ class Recording:
         return duration, np.concatenate(self.chunks, axis=0)
 
 
-def find_keyboards() -> list[InputDevice]:
-    devices = []
-    for path in evdev.list_devices():
+def try_watch(path: str, announce: bool = True) -> bool:
+    """Open the input device at `path` and spawn a watcher if it has HOTKEY.
+
+    Returns True if a watcher was started. Idempotent — calling twice with the
+    same path returns False the second time (the first call already claimed it).
+    """
+    with watched_lock:
+        if path in watched_paths:
+            return False
+        watched_paths.add(path)
+
+    def _release() -> None:
+        with watched_lock:
+            watched_paths.discard(path)
+
+    try:
+        dev = InputDevice(path)
+    except PermissionError:
+        log.error("permission denied on %s — are you in the 'input' group?", path)
+        _release()
+        return False
+    except OSError as e:
+        log.debug("skipping %s: %s", path, e)
+        _release()
+        return False
+
+    if HOTKEY not in dev.capabilities().get(ecodes.EV_KEY, []):
         try:
-            dev = InputDevice(path)
-        except PermissionError:
-            log.error("permission denied on %s — are you in the 'input' group?", path)
-            continue
-        except OSError as e:
-            log.debug("skipping %s: %s", path, e)
-            continue
-        keys = dev.capabilities().get(ecodes.EV_KEY, [])
-        if HOTKEY in keys:
-            devices.append(dev)
-    return devices
+            dev.close()
+        except Exception:
+            pass
+        _release()
+        return False
+
+    if announce:
+        log.info("new keyboard: %r (%s)", dev.name, dev.path)
+    threading.Thread(target=watch_device, args=(dev,), daemon=True).start()
+    return True
 
 
 def on_press() -> None:
@@ -267,6 +296,43 @@ def watch_device(dev: InputDevice) -> None:
         log.warning("device %s disconnected: %s", dev.path, e)
     except Exception as e:
         log.error("device %s thread crashed: %s", dev.path, e)
+    finally:
+        with watched_lock:
+            watched_paths.discard(dev.path)
+        try:
+            dev.close()
+        except Exception:
+            pass
+
+
+def udev_watcher() -> None:
+    """Listen for new input devices being added and bind to any with HOTKEY."""
+    try:
+        context = pyudev.Context()
+        monitor = pyudev.Monitor.from_netlink(context)
+        monitor.filter_by(subsystem="input")
+        monitor.start()
+    except Exception as e:
+        log.error("udev watcher failed to start: %s — hotplug disabled", e)
+        return
+
+    while not stop_event.is_set():
+        try:
+            device = monitor.poll(timeout=1.0)
+        except Exception as e:
+            log.error("udev poll error: %s", e)
+            time.sleep(1.0)
+            continue
+        if device is None:
+            continue
+        if device.action != "add":
+            continue
+        path = device.device_node
+        if not path or not path.startswith("/dev/input/event"):
+            continue
+        # Brief settle so the kernel finishes setting up the node + perms.
+        time.sleep(0.1)
+        try_watch(path)
 
 
 def shutdown(signum, frame) -> None:
@@ -301,26 +367,24 @@ def main() -> int:
         log.error("GROQ_API_KEY not set — copy .env.example to .env and paste your key")
         return 1
 
-    devices = find_keyboards()
-    if not devices:
+    for path in evdev.list_devices():
+        try_watch(path, announce=False)
+
+    if not watched_paths:
         log.error(
-            "no keyboards with KEY_RIGHTCTRL found. "
+            "no keyboards with %s found. "
             "is your user in the 'input' group? "
-            "(sudo usermod -aG input $USER, then log out and back in)"
+            "(sudo usermod -aG input $USER, then log out and back in)",
+            HOTKEY_NAME,
         )
         return 1
 
-    names = [f"{d.name!r} ({d.path})" for d in devices]
-    log.info("ready. watching %d device(s): %s", len(devices), ", ".join(names))
+    log.info("ready. watching %d device(s)", len(watched_paths))
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    threads = []
-    for dev in devices:
-        t = threading.Thread(target=watch_device, args=(dev,), daemon=True)
-        t.start()
-        threads.append(t)
+    threading.Thread(target=udev_watcher, daemon=True).start()
 
     # Park the main thread; signal handlers will sys.exit.
     while not stop_event.is_set():
