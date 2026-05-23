@@ -376,7 +376,10 @@ def main() -> int:
         )
         return 1
     if not os.environ.get("GROQ_API_KEY"):
-        log.error("GROQ_API_KEY not set — run install.sh to set it up.")
+        log.error(
+            "GROQ_API_KEY not set in ~/.config/scribe/.env — "
+            "run `scribe update` to set it."
+        )
         return 1
 
     for path in evdev.list_devices():

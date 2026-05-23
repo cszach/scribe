@@ -173,7 +173,10 @@ def record_interactive() -> tuple[float, list[np.ndarray]]:
 
 def main() -> int:
     if not os.environ.get("GROQ_API_KEY"):
-        die("GROQ_API_KEY not set — run install.sh to set it up.")
+        die(
+            "GROQ_API_KEY not set in ~/.config/scribe/.env — "
+            "run `scribe update` to set it."
+        )
 
     print(f"  {D}Press Enter to start recording…{N}", end="", flush=True)
     try:

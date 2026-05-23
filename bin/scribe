@@ -146,8 +146,8 @@ status_line() {
       printf "  %s●%s Scribe is %sstopping…%s\n" "$Y" "$N" "$Y" "$N"
       ;;
     "")
-      printf "  %s✗%s Scribe isn't set up yet — run install.sh to get started.\n" \
-        "$R" "$N"
+      printf "  %s✗%s Scribe isn't set up yet — run %sscribe update%s to finish setup.\n" \
+        "$R" "$N" "$B" "$N"
       ;;
     *)
       printf "  %s●%s Scribe: %s\n" "$Y" "$N" "$state"
@@ -199,8 +199,8 @@ cmd_test() {
   local py="$SCRIBE_DIR/.venv/bin/python"
   local helper="$SCRIBE_DIR/scribe_test.py"
   if [[ ! -x "$py" ]]; then
-    printf "  %s✗%s Scribe isn't fully installed yet — run install.sh first.\n" \
-      "$R" "$N" >&2
+    printf "  %s✗%s Scribe isn't fully installed yet — run %sscribe update%s to finish setup.\n" \
+      "$R" "$N" "$B" "$N" >&2
     exit 1
   fi
   if [[ ! -f "$helper" ]]; then
