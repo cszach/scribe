@@ -177,15 +177,18 @@ documented defaults. All variables are optional except `GROQ_API_KEY`.
 `install.sh` drops a small wrapper at `~/.local/bin/scribe` that talks to the
 systemd user service and edits `.env` for you.
 
-| Command                | What it does                                                               |
-| ---------------------- | -------------------------------------------------------------------------- |
-| `scribe start`         | Start the systemd user service.                                            |
-| `scribe stop`          | Stop the systemd user service.                                             |
-| `scribe restart`       | Restart the systemd user service.                                          |
-| `scribe status`        | Compact status: state, pid, uptime, autostart, key config, recent logs.    |
-| `scribe test`          | Record + transcribe once to verify the pipeline. Doesn't touch the daemon. |
-| `scribe add <term>...` | Append terms to `SCRIBE_PROMPT` in `.env` (dedup'd).                       |
-| `scribe uninstall`     | Remove the systemd unit and the CLI wrapper (the repo stays).              |
+| Command                   | What it does                                                                                  |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| `scribe start`            | Start the systemd user service.                                                               |
+| `scribe stop`             | Stop the systemd user service.                                                                |
+| `scribe restart`          | Restart the systemd user service.                                                             |
+| `scribe status`           | Compact status: state, pid, uptime, autostart, key config, recent logs.                       |
+| `scribe test`             | Record + transcribe once to verify the pipeline. Doesn't touch the daemon.                    |
+| `scribe list`             | List the vocabulary terms currently in `SCRIBE_PROMPT`.                                       |
+| `scribe add <term>...`    | Append terms to `SCRIBE_PROMPT` (dedup'd, case-insensitive).                                  |
+| `scribe remove <term>...` | Remove matching terms from `SCRIBE_PROMPT` (case-insensitive).                                |
+| `scribe reinstall`        | Refresh CLI wrapper, sync Python deps with `requirements.txt`, restart the daemon if running. |
+| `scribe uninstall`        | Remove the systemd unit and the CLI wrapper (the repo stays).                                 |
 
 Multi-word terms must be quoted so the shell hands them through as one arg:
 

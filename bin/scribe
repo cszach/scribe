@@ -262,14 +262,112 @@ usage() {
   print_logo
   printf "  %sUsage:%s %sscribe%s <command> [args]\n\n" "$B" "$N" "$C$B" "$N"
   printf "  %sCommands:%s\n" "$B" "$N"
-  printf "      %sstart%s            Start the scribe systemd user service.\n" "$C$B" "$N"
-  printf "      %sstop%s             Stop the scribe systemd user service.\n" "$C$B" "$N"
-  printf "      %srestart%s          Restart the scribe systemd user service.\n" "$C$B" "$N"
-  printf "      %sstatus%s           Show scribe service status.\n" "$C$B" "$N"
-  printf "      %stest%s             Record once and transcribe to verify the pipeline.\n" "$C$B" "$N"
-  printf "      %sadd%s <term>…      Add terms to SCRIBE_PROMPT in .env (quote multi-word).\n" "$C$B" "$N"
-  printf "      %suninstall%s [-y]   Remove the systemd unit and the CLI wrapper.\n\n" "$C$B" "$N"
+  printf "      %sstart%s              Start the scribe systemd user service.\n" "$C$B" "$N"
+  printf "      %sstop%s               Stop the scribe systemd user service.\n" "$C$B" "$N"
+  printf "      %srestart%s            Restart the scribe systemd user service.\n" "$C$B" "$N"
+  printf "      %sstatus%s             Show scribe service status.\n" "$C$B" "$N"
+  printf "      %stest%s               Record once and transcribe to verify the pipeline.\n" "$C$B" "$N"
+  printf "      %slist%s               List vocabulary terms in SCRIBE_PROMPT.\n" "$C$B" "$N"
+  printf "      %sadd%s <term>…        Add terms to SCRIBE_PROMPT (quote multi-word).\n" "$C$B" "$N"
+  printf "      %sremove%s <term>…     Remove matching terms (case-insensitive).\n" "$C$B" "$N"
+  printf "      %sreinstall%s          Refresh CLI, sync Python deps, restart daemon if running.\n" "$C$B" "$N"
+  printf "      %suninstall%s [-y]     Remove the systemd unit and the CLI wrapper.\n\n" "$C$B" "$N"
   printf "  %s.env:%s %s\n\n" "$D" "$N" "$ENV_FILE"
+}
+
+# Locate SCRIBE_PROMPT and echo "<line_idx>\t<current_value>". Last match wins
+# so a real setting below a commented placeholder takes precedence. Either or
+# both fields may be empty.
+_vocab_read() {
+  local line_idx="" current=""
+  if [[ -f "$ENV_FILE" ]]; then
+    line_idx=$(grep -nE '^[[:space:]]*#?[[:space:]]*SCRIBE_PROMPT=' "$ENV_FILE" \
+               | tail -1 | cut -d: -f1 || true)
+    if [[ -n "$line_idx" ]]; then
+      current=$(sed -n "${line_idx}p" "$ENV_FILE" \
+                | sed -E 's/^[[:space:]]*#?[[:space:]]*SCRIBE_PROMPT=//')
+      current="${current%\"}"; current="${current#\"}"
+    fi
+  fi
+  printf '%s\t%s\n' "$line_idx" "$current"
+}
+
+# Write `SCRIBE_PROMPT=<value>` to the line at $1; append a new line if $1 empty.
+_vocab_write_line() {
+  local line_idx=$1 new_line=$2
+  if [[ -n "$line_idx" ]]; then
+    local tmp
+    tmp=$(mktemp)
+    NEW_LINE="$new_line" awk -v idx="$line_idx" \
+      'NR==idx {print ENVIRON["NEW_LINE"]; next} {print}' \
+      "$ENV_FILE" > "$tmp"
+    mv "$tmp" "$ENV_FILE"
+  else
+    printf '\n%s\n' "$new_line" >> "$ENV_FILE"
+  fi
+}
+
+# Split "a, b, c" into an array; trims whitespace, drops empties.
+_vocab_split_into() {
+  local -n arr=$1
+  local raw=$2 p trimmed
+  arr=()
+  [[ -z "$raw" ]] && return 0
+  local -a parts
+  IFS=',' read -ra parts <<< "$raw"
+  for p in "${parts[@]}"; do
+    trimmed="${p#"${p%%[![:space:]]*}"}"
+    trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+    [[ -n "$trimmed" ]] && arr+=("$trimmed")
+  done
+}
+
+# Join "${arr[@]}" with ", "; result in $1.
+_vocab_join_into() {
+  local -n out=$1
+  shift
+  out=""
+  local i
+  for i in "$@"; do
+    if [[ -z "$out" ]]; then
+      out="$i"
+    else
+      out="$out, $i"
+    fi
+  done
+}
+
+_vocab_restart_if_active() {
+  systemctl --user is-active --quiet "$SERVICE" 2>/dev/null || return 0
+  echo
+  printf "  %s→ restarting scribe to apply…%s\n" "$D" "$N"
+  if systemctl --user restart "$SERVICE"; then
+    printf "  %s✓%s Service restarted\n" "$G" "$N"
+  else
+    printf "  %s✗%s restart failed — see: journalctl --user -u scribe -n 50\n" "$R" "$N" >&2
+  fi
+}
+
+cmd_list() {
+  local line_idx current parsed
+  parsed=$(_vocab_read)
+  line_idx="${parsed%%	*}"
+  current="${parsed#*	}"
+
+  local -a terms
+  _vocab_split_into terms "$current"
+
+  if (( ${#terms[@]} == 0 )); then
+    printf "  %s○%s No vocabulary terms set.\n" "$D" "$N"
+    printf "  %sAdd with:%s scribe add <term>...\n" "$D" "$N"
+    return 0
+  fi
+
+  printf "  %s%sVocabulary terms (%d):%s\n" "$B" "$C" "${#terms[@]}" "$N"
+  local t
+  for t in "${terms[@]}"; do
+    printf "    %s•%s %s\n" "$D" "$N" "$t"
+  done
 }
 
 cmd_add() {
@@ -283,86 +381,209 @@ cmd_add() {
     exit 1
   fi
 
-  # Locate SCRIBE_PROMPT (commented or not). Last match wins so a real setting
-  # below a commented placeholder takes precedence.
-  local line_idx="" current=""
-  line_idx=$(grep -nE '^[[:space:]]*#?[[:space:]]*SCRIBE_PROMPT=' "$ENV_FILE" \
-             | tail -1 | cut -d: -f1 || true)
-  if [[ -n "$line_idx" ]]; then
-    current=$(sed -n "${line_idx}p" "$ENV_FILE" \
-              | sed -E 's/^[[:space:]]*#?[[:space:]]*SCRIBE_PROMPT=//')
-    current="${current%\"}"; current="${current#\"}"
-  fi
+  local line_idx current parsed
+  parsed=$(_vocab_read)
+  line_idx="${parsed%%	*}"
+  current="${parsed#*	}"
 
-  # Build a case-insensitive set of existing terms for dedup. Scope IFS to just
-  # the `read` so it doesn't leak into "${added[*]}" below.
+  local -a existing=()
+  _vocab_split_into existing "$current"
+
   declare -A seen=()
-  if [[ -n "$current" ]]; then
-    local -a parts
-    IFS=',' read -ra parts <<< "$current"
-    local c
-    for c in "${parts[@]}"; do
-      c="${c#"${c%%[![:space:]]*}"}"
-      c="${c%"${c##*[![:space:]]}"}"
-      [[ -n "$c" ]] && seen[${c,,}]=1
-    done
-  fi
+  local t
+  for t in "${existing[@]}"; do
+    seen[${t,,}]=1
+  done
 
-  local added=() item trimmed
+  # Explicit =() so the array is "set" for set -u, even if never appended to.
+  local -a added=()
+  local item trimmed
   for item in "$@"; do
     trimmed="${item#"${item%%[![:space:]]*}"}"
     trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
     [[ -z "$trimmed" ]] && continue
-    if [[ -n "${seen[${trimmed,,}]+x}" ]]; then
-      continue
-    fi
+    [[ -n "${seen[${trimmed,,}]+x}" ]] && continue
     seen[${trimmed,,}]=1
     added+=("$trimmed")
   done
 
   if (( ${#added[@]} == 0 )); then
-    echo "Nothing new to add — all terms already present in SCRIBE_PROMPT."
+    printf "  %s○%s Nothing to add — all terms already in SCRIBE_PROMPT.\n" "$D" "$N"
     return 0
   fi
 
-  local joined_new="" i
-  for i in "${!added[@]}"; do
-    if (( i == 0 )); then
-      joined_new="${added[$i]}"
-    else
-      joined_new="$joined_new, ${added[$i]}"
-    fi
-  done
-
-  local new_value
+  local joined_new new_value
+  _vocab_join_into joined_new "${added[@]}"
   if [[ -n "$current" ]]; then
     new_value="$current, $joined_new"
   else
     new_value="$joined_new"
   fi
 
-  local new_line="SCRIBE_PROMPT=$new_value"
-
-  if [[ -n "$line_idx" ]]; then
-    # Pass replacement via ENVIRON so awk doesn't interpret backslashes.
-    local tmp
-    tmp=$(mktemp)
-    NEW_LINE="$new_line" awk -v idx="$line_idx" \
-      'NR==idx {print ENVIRON["NEW_LINE"]; next} {print}' \
-      "$ENV_FILE" > "$tmp"
-    mv "$tmp" "$ENV_FILE"
-  else
-    printf '\nSCRIBE_PROMPT=%s\n' "$new_value" >> "$ENV_FILE"
-  fi
+  _vocab_write_line "$line_idx" "SCRIBE_PROMPT=$new_value"
 
   printf "  %s✓%s Added: %s%s%s\n\n" "$G" "$N" "$B" "$joined_new" "$N"
   printf "  %sSCRIBE_PROMPT now reads:%s\n" "$D" "$N"
   printf "  %s%s%s\n" "$C" "$new_value" "$N"
-  if systemctl --user is-active --quiet "$SERVICE" 2>/dev/null; then
-    echo
-    printf "  %s💡 run %sscribe restart%s%s to pick up the new vocab.%s\n" \
-      "$D" "$C$B" "$N$D" "$D" "$N"
+  _vocab_restart_if_active
+}
+
+cmd_remove() {
+  if [[ $# -eq 0 ]]; then
+    echo "scribe remove: nothing to remove" >&2
+    echo "usage: scribe remove <term>... — wrap multi-word terms in quotes" >&2
+    exit 2
   fi
+  if [[ ! -f "$ENV_FILE" ]]; then
+    echo "scribe: .env not found at $ENV_FILE" >&2
+    exit 1
+  fi
+
+  local line_idx current parsed
+  parsed=$(_vocab_read)
+  line_idx="${parsed%%	*}"
+  current="${parsed#*	}"
+
+  if [[ -z "$current" ]]; then
+    printf "  %s○%s No vocabulary to remove — SCRIBE_PROMPT is empty.\n" "$D" "$N"
+    return 0
+  fi
+
+  # Map lowercase → original-cased term for "not found" reporting later.
+  declare -A targets=()
+  local arg trimmed
+  for arg in "$@"; do
+    trimmed="${arg#"${arg%%[![:space:]]*}"}"
+    trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+    [[ -n "$trimmed" ]] && targets[${trimmed,,}]="$trimmed"
+  done
+
+  # Explicit =() so the arrays are "set" for set -u, even if never appended to.
+  local -a existing=() kept=() removed=()
+  _vocab_split_into existing "$current"
+  local t
+  for t in "${existing[@]}"; do
+    if [[ -n "${targets[${t,,}]+x}" ]]; then
+      removed+=("$t")
+      unset 'targets[${t,,}]'
+    else
+      kept+=("$t")
+    fi
+  done
+
+  # Collect the original-cased "not found" terms in input order for nicer output.
+  local -a notfound=()
+  for arg in "$@"; do
+    trimmed="${arg#"${arg%%[![:space:]]*}"}"
+    trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+    [[ -z "$trimmed" ]] && continue
+    [[ -n "${targets[${trimmed,,}]+x}" ]] && notfound+=("${targets[${trimmed,,}]}")
+  done
+
+  if (( ${#removed[@]} == 0 )); then
+    local notfound_joined
+    _vocab_join_into notfound_joined "${notfound[@]}"
+    printf "  %s⚠%s  Not found: %s%s%s\n\n" "$Y" "$N" "$B" "$notfound_joined" "$N"
+    printf "  %sVocabulary unchanged. Current terms (%d):%s\n" "$D" "${#existing[@]}" "$N"
+    for t in "${existing[@]}"; do
+      printf "    %s•%s %s\n" "$D" "$N" "$t"
+    done
+    return 0
+  fi
+
+  local new_value
+  _vocab_join_into new_value "${kept[@]}"
+  _vocab_write_line "$line_idx" "SCRIBE_PROMPT=$new_value"
+
+  local removed_joined
+  _vocab_join_into removed_joined "${removed[@]}"
+  printf "  %s✓%s Removed: %s%s%s\n" "$G" "$N" "$B" "$removed_joined" "$N"
+
+  if (( ${#notfound[@]} > 0 )); then
+    local notfound_joined
+    _vocab_join_into notfound_joined "${notfound[@]}"
+    printf "  %s⚠%s  Not found: %s\n" "$Y" "$N" "$notfound_joined"
+  fi
+
+  echo
+  printf "  %sSCRIBE_PROMPT now reads:%s\n" "$D" "$N"
+  if [[ -n "$new_value" ]]; then
+    printf "  %s%s%s\n" "$C" "$new_value" "$N"
+  else
+    printf "  %s(empty)%s\n" "$D" "$N"
+  fi
+  _vocab_restart_if_active
+}
+
+cmd_reinstall() {
+  local src="$SCRIBE_DIR/bin/scribe"
+  local bin_dir="$HOME/.local/bin"
+  local dest="$bin_dir/scribe"
+
+  if [[ ! -f "$src" ]]; then
+    printf "  %s✗%s source CLI missing at %s — repo is incomplete\n" \
+      "$R" "$N" "$src" >&2
+    exit 1
+  fi
+
+  # 1. Refresh the CLI wrapper.
+  # Build the placeholder at runtime so install.sh's own templating pass
+  # doesn't replace this literal inside the installed copy — otherwise
+  # subsequent reinstalls would have nothing to substitute. Linux keeps this
+  # file's inode alive while we're running, so overwriting it is safe.
+  mkdir -p "$bin_dir"
+  local placeholder
+  placeholder=$(printf '__%s__' 'SCRIBE_DIR')
+  local template
+  template=$(<"$src")
+  printf '%s\n' "${template//$placeholder/$SCRIBE_DIR}" > "$dest"
+  chmod +x "$dest"
+  printf "  %s✓%s CLI wrapper updated %s(%s)%s\n" "$G" "$N" "$D" "$dest" "$N"
+
+  # 2. Sync Python dependencies. The service points at $SCRIBE_DIR/scribe.py
+  # directly, so the daemon code itself is always current — we just need to
+  # make sure its dependencies match requirements.txt.
+  local venv_pip="$SCRIBE_DIR/.venv/bin/pip"
+  local req="$SCRIBE_DIR/requirements.txt"
+  if [[ ! -x "$venv_pip" ]]; then
+    printf "  %s⚠%s  No venv at %s/.venv — skipping dependency sync. Run install.sh first.\n" \
+      "$Y" "$N" "$SCRIBE_DIR"
+  elif [[ ! -f "$req" ]]; then
+    printf "  %s⚠%s  No requirements.txt — skipping dependency sync.\n" "$Y" "$N"
+  else
+    printf "  %s→ syncing Python dependencies…%s\n" "$D" "$N"
+    local log
+    log=$(mktemp)
+    if "$venv_pip" install -q -r "$req" >"$log" 2>&1; then
+      printf "  %s✓%s Dependencies in sync with requirements.txt\n" "$G" "$N"
+    else
+      printf "  %s✗%s pip install failed:\n" "$R" "$N" >&2
+      cat "$log" >&2
+      rm -f "$log"
+      exit 1
+    fi
+    rm -f "$log"
+  fi
+
+  # 3. Restart the daemon if it's running so scribe.py changes take effect.
+  local state
+  state=$(systemctl --user is-active "$SERVICE" 2>/dev/null || true)
+  if [[ "$state" == "active" ]]; then
+    printf "  %s→ restarting scribe…%s\n" "$D" "$N"
+    if systemctl --user restart "$SERVICE"; then
+      printf "  %s✓%s Service restarted\n" "$G" "$N"
+    else
+      printf "  %s✗%s restart failed — see: journalctl --user -u scribe -n 50\n" "$R" "$N" >&2
+      exit 1
+    fi
+  elif systemctl --user is-enabled --quiet "$SERVICE" 2>/dev/null; then
+    printf "  %s○%s Service installed but not running — start with: scribe start\n" "$D" "$N"
+  else
+    printf "  %s○%s No systemd service (skip restart). Run install.sh to set up autostart.\n" "$D" "$N"
+  fi
+
+  echo
+  printf "  %s%sReinstall complete.%s\n" "$B" "$G" "$N"
 }
 
 cmd_uninstall() {
@@ -441,14 +662,20 @@ cmd_uninstall() {
 }
 
 case "${1:-}" in
-  start)   cmd_start ;;
-  stop)    cmd_stop ;;
-  restart) cmd_restart ;;
-  status)  cmd_status ;;
-  test)    cmd_test ;;
+  start)     cmd_start ;;
+  stop)      cmd_stop ;;
+  restart)   cmd_restart ;;
+  status)    cmd_status ;;
+  test)      cmd_test ;;
+  list)      cmd_list ;;
+  reinstall) cmd_reinstall ;;
   add)
     shift
     cmd_add "$@"
+    ;;
+  remove|rm)
+    shift
+    cmd_remove "$@"
     ;;
   uninstall)
     shift
