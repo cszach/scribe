@@ -166,7 +166,7 @@ documented defaults. All variables are optional except `GROQ_API_KEY`.
 | ----------------------- | ------------------------ | ------------------------------------------------------------------------------------ |
 | `SCRIBE_HOTKEY`         | `KEY_RIGHTCTRL`          | Push-to-talk key, any name from `evdev.ecodes`.                                      |
 | `SCRIBE_MIN_DURATION_S` | `0.3`                    | Holds shorter than this are dropped as accidental taps.                              |
-| `SCRIBE_MAX_DURATION_S` | `60.0`                   | Recording auto-stops at this point.                                                  |
+| `SCRIBE_MAX_DURATION_S` | _unset_                  | If set, recording auto-stops at this point. Unset = no limit.                        |
 | `SCRIBE_MODEL`          | `whisper-large-v3-turbo` | Any Groq Whisper variant.                                                            |
 | `SCRIBE_PROMPT`         | _empty_                  | Comma-separated vocabulary to bias Whisper toward your domain-specific proper nouns. |
 | `SCRIBE_PASTE_MODE`     | `shortcut`               | Paste mechanism (see [Auto-paste modes](#auto-paste-modes)).                         |

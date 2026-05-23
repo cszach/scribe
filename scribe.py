@@ -32,7 +32,8 @@ SAMPLE_RATE = 16000
 CHANNELS = 1
 DTYPE = "int16"
 MIN_DURATION_S = float(os.environ.get("SCRIBE_MIN_DURATION_S", "0.3"))
-MAX_DURATION_S = float(os.environ.get("SCRIBE_MAX_DURATION_S", "60.0"))
+_max_duration_raw = os.environ.get("SCRIBE_MAX_DURATION_S", "").strip()
+MAX_DURATION_S: float | None = float(_max_duration_raw) if _max_duration_raw else None
 MODEL = os.environ.get("SCRIBE_MODEL", "whisper-large-v3-turbo").strip()
 PROMPT = os.environ.get("SCRIBE_PROMPT", "").strip()
 
@@ -63,9 +64,14 @@ class Recording:
             callback=self._on_audio,
         )
         self.stream.start()
-        self.watchdog = threading.Timer(MAX_DURATION_S, self._on_timeout)
-        self.watchdog.daemon = True
-        self.watchdog.start()
+        if MAX_DURATION_S is not None:
+            self.watchdog: threading.Timer | None = threading.Timer(
+                MAX_DURATION_S, self._on_timeout
+            )
+            self.watchdog.daemon = True
+            self.watchdog.start()
+        else:
+            self.watchdog = None
 
     def _on_audio(self, indata, _frames, _time_info, status) -> None:
         if status:
@@ -77,7 +83,8 @@ class Recording:
         on_release()
 
     def finish(self) -> tuple[float, np.ndarray | None]:
-        self.watchdog.cancel()
+        if self.watchdog is not None:
+            self.watchdog.cancel()
         try:
             self.stream.stop()
             self.stream.close()
@@ -344,7 +351,8 @@ def shutdown(_signum, _frame) -> None:
             try:
                 session.stream.stop()
                 session.stream.close()
-                session.watchdog.cancel()
+                if session.watchdog is not None:
+                    session.watchdog.cancel()
             except Exception:
                 pass
             session = None
