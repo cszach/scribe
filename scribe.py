@@ -376,7 +376,7 @@ def main() -> int:
         )
         return 1
     if not os.environ.get("GROQ_API_KEY"):
-        log.error("GROQ_API_KEY not set — copy .env.example to .env and paste your key")
+        log.error("GROQ_API_KEY not set — run install.sh to set it up.")
         return 1
 
     for path in evdev.list_devices():

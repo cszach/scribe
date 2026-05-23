@@ -23,8 +23,11 @@ import numpy as np
 import sounddevice as sd
 from dotenv import load_dotenv
 from groq import Groq
+from pathlib import Path
 
-load_dotenv()
+# .env lives in the XDG config dir — see scribe.py for the same loader.
+_xdg_config = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+load_dotenv(Path(_xdg_config) / "scribe" / ".env")
 
 SAMPLE_RATE = 16000
 MODEL = os.environ.get("SCRIBE_MODEL", "whisper-large-v3-turbo").strip()
@@ -170,7 +173,7 @@ def record_interactive() -> tuple[float, list[np.ndarray]]:
 
 def main() -> int:
     if not os.environ.get("GROQ_API_KEY"):
-        die("GROQ_API_KEY not set — copy .env.example to .env and paste your key")
+        die("GROQ_API_KEY not set — run install.sh to set it up.")
 
     print(f"  {D}Press Enter to start recording…{N}", end="", flush=True)
     try:
