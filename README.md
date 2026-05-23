@@ -8,10 +8,11 @@ tray icon.
 ## Quick install
 
 ```sh
-git clone https://github.com/cszach/scribe.git && cd scribe && ./install.sh
+curl -fsSL https://raw.githubusercontent.com/cszach/scribe/main/install.sh | bash
 ```
 
-Or see below for manual setup and configuration.
+This clones Scribe into `~/.local/share/scribe` and sets everything up. To hack
+on the code instead, see [manual setup](#manual-setup) below.
 
 ## Prereqs
 
@@ -73,14 +74,20 @@ shell-rc export is needed.
 `/dev/uinput`. If you don't want this, set `SCRIBE_NO_AUTO_PASTE=1` and Scribe
 will only copy to clipboard (you'll paste manually).
 
-## Install
+## Manual setup
+
+Skip this section if you used the curl installer above — it covers everything
+here. This is for people who want to clone the repo and hack on the code:
 
 ```bash
 git clone https://github.com/cszach/scribe.git && cd scribe
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+./install.sh
 ```
+
+`install.sh` is the single source of truth — it creates the venv, installs
+Python deps, writes `.env`, drops the `scribe` CLI in `~/.local/bin/`, and sets
+up the systemd user service. It's idempotent, so re-running it is the same as
+`scribe update` (minus the `git pull`).
 
 If `evdev` or `sounddevice` build from source (no prebuilt wheel for your Python
 version), install the native deps first:
@@ -93,28 +100,11 @@ sudo apt install libevdev-dev portaudio19-dev
 sudo dnf install libevdev-devel portaudio-devel
 ```
 
-## Configure
+To run Scribe ad-hoc without the systemd service:
 
 ```bash
-cp .env.example .env
-```
-
-Then paste your key into `.env`:
-
-```
-GROQ_API_KEY=gsk_...
-```
-
-## Run
-
-```bash
+source .venv/bin/activate
 python scribe.py
-```
-
-You should see something like:
-
-```
-14:22:01 INFO ready. watching 2 device(s): 'AT Translated Set 2 keyboard' (/dev/input/event3), 'Logitech USB Receiver' (/dev/input/event8)
 ```
 
 ## Use
@@ -124,9 +114,9 @@ You should see something like:
 3. Speak.
 4. Release. The transcript is pasted at your cursor.
 
-Quick taps (under 300 ms) are ignored. Recordings auto-stop at 60 seconds. To
-disable auto-paste and just use the clipboard, run with
-`SCRIBE_NO_AUTO_PASTE=1`.
+Quick taps (under 300 ms) are ignored as accidental presses. Hold as long as you
+like — there's no time limit by default. To skip auto-paste and just copy to the
+clipboard, run with `SCRIBE_NO_AUTO_PASTE=1`.
 
 ## Auto-paste modes
 
@@ -149,7 +139,7 @@ as a fallback.
 | `no keyboards with KEY_RIGHTCTRL found`                                     | You're not in the `input` group, or haven't logged out since adding it. See One-time setup.                                                                                                                                                                                                                                                                                |
 | `permission denied on /dev/input/eventN`                                    | Same as above.                                                                                                                                                                                                                                                                                                                                                             |
 | Hotkey suddenly stops working after sleep/wake, dock unplug, or USB re-plug | Kernel re-enumerated the keyboard and scribe's evdev fd died. Confirm with `journalctl --user -u scribe \| grep disconnected` — look for `device /dev/input/eventN disconnected`. Recover with `systemctl --user restart scribe` (or `kill <pid>` and relaunch if running ad-hoc). Known limitation — scribe scans devices once at startup and doesn't re-bind on hotplug. |
-| `GROQ_API_KEY not set`                                                      | `.env` is missing or empty. See Configure.                                                                                                                                                                                                                                                                                                                                 |
+| `GROQ_API_KEY not set`                                                      | `~/.config/scribe/.env` is missing or empty. Re-run `install.sh`.                                                                                                                                                                                                                                                                                                          |
 | Recording starts but transcript is empty                                    | Mic isn't capturing — check `pavucontrol` / `wpctl status` and confirm your input is unmuted.                                                                                                                                                                                                                                                                              |
 | `transcription failed: ...`                                                 | Network or API issue. Daemon stays alive; just press and try again.                                                                                                                                                                                                                                                                                                        |
 | `auto-paste failed: ...exit status 2`                                       | `ydotoold` is running but the socket isn't accessible to your user. Apply the Fedora override in One-time setup.                                                                                                                                                                                                                                                           |
@@ -159,38 +149,39 @@ as a fallback.
 
 ## Configuration
 
-Everything tunable lives in `.env`; see `.env.example` for the full list with
-documented defaults. All variables are optional except `GROQ_API_KEY`.
+Everything tunable lives in `~/.config/scribe/.env`; see `.env.example` in the
+repo for the full list with documented defaults. All variables are optional
+except `GROQ_API_KEY`.
 
-| Variable                | Default                  | Description                                                                          |
-| ----------------------- | ------------------------ | ------------------------------------------------------------------------------------ |
-| `SCRIBE_HOTKEY`         | `KEY_RIGHTCTRL`          | Push-to-talk key, any name from `evdev.ecodes`.                                      |
-| `SCRIBE_MIN_DURATION_S` | `0.3`                    | Holds shorter than this are dropped as accidental taps.                              |
-| `SCRIBE_MAX_DURATION_S` | _unset_                  | If set, recording auto-stops at this point. Unset = no limit.                        |
-| `SCRIBE_MODEL`          | `whisper-large-v3-turbo` | Any Groq Whisper variant.                                                            |
-| `SCRIBE_PROMPT`         | _empty_                  | Comma-separated vocabulary to bias Whisper toward your domain-specific proper nouns. |
-| `SCRIBE_PASTE_MODE`     | `shortcut`               | Paste mechanism (see [Auto-paste modes](#auto-paste-modes)).                         |
-| `SCRIBE_NO_AUTO_PASTE`  | `0`                      | Set to `1` to skip auto-paste and use the clipboard only.                            |
+| Variable                | Default                  | Description                                                                 |
+| ----------------------- | ------------------------ | --------------------------------------------------------------------------- |
+| `SCRIBE_HOTKEY`         | `KEY_RIGHTCTRL`          | Push-to-talk key, any name from `evdev.ecodes`.                             |
+| `SCRIBE_MIN_DURATION_S` | `0.3`                    | Holds shorter than this are dropped as accidental taps.                     |
+| `SCRIBE_MAX_DURATION_S` | _unset_                  | If set, recording auto-stops at this point. Unset = no limit.               |
+| `SCRIBE_MODEL`          | `whisper-large-v3-turbo` | Any Groq Whisper variant.                                                   |
+| `SCRIBE_PROMPT`         | _empty_                  | Comma-separated custom vocabulary — words that often get transcribed wrong. |
+| `SCRIBE_PASTE_MODE`     | `shortcut`               | Paste mechanism (see [Auto-paste modes](#auto-paste-modes)).                |
+| `SCRIBE_NO_AUTO_PASTE`  | `0`                      | Set to `1` to skip auto-paste and use the clipboard only.                   |
 
 ## The `scribe` command
 
-`install.sh` drops a small wrapper at `~/.local/bin/scribe` that talks to the
-systemd user service and edits `.env` for you.
+After running `install.sh`, the `scribe` command controls Scribe — starting and
+stopping it, checking its status, and managing custom vocabulary.
 
-| Command                   | What it does                                                                                  |
-| ------------------------- | --------------------------------------------------------------------------------------------- |
-| `scribe start`            | Start the systemd user service.                                                               |
-| `scribe stop`             | Stop the systemd user service.                                                                |
-| `scribe restart`          | Restart the systemd user service.                                                             |
-| `scribe status`           | Compact status: state, pid, uptime, autostart, key config, recent logs.                       |
-| `scribe test`             | Record + transcribe once to verify the pipeline. Doesn't touch the daemon.                    |
-| `scribe list`             | List the vocabulary terms currently in `SCRIBE_PROMPT`.                                       |
-| `scribe add <term>...`    | Append terms to `SCRIBE_PROMPT` (dedup'd, case-insensitive).                                  |
-| `scribe remove <term>...` | Remove matching terms from `SCRIBE_PROMPT` (case-insensitive).                                |
-| `scribe reinstall`        | Refresh CLI wrapper, sync Python deps with `requirements.txt`, restart the daemon if running. |
-| `scribe uninstall`        | Remove the systemd unit and the CLI wrapper (the repo stays).                                 |
+| Command                   | What it does                                          |
+| ------------------------- | ----------------------------------------------------- |
+| `scribe start`            | Start Scribe.                                         |
+| `scribe stop`             | Stop Scribe.                                          |
+| `scribe restart`          | Restart Scribe.                                       |
+| `scribe status`           | Show whether Scribe is running, plus recent activity. |
+| `scribe test`             | Record a clip and show the transcript.                |
+| `scribe list`             | Show your custom vocabulary.                          |
+| `scribe add <word>...`    | Add words to your custom vocabulary.                  |
+| `scribe remove <word>...` | Remove words from your custom vocabulary.             |
+| `scribe update`           | Update Scribe to the latest version.                  |
+| `scribe uninstall`        | Uninstall Scribe (asks before removing anything).     |
 
-Multi-word terms must be quoted so the shell hands them through as one arg:
+Wrap multi-word phrases in quotes so the shell treats them as one:
 
 ```sh
 scribe add "Claude Code" Anthropic OAuth Kubernetes
@@ -220,8 +211,8 @@ RestartSec=3
 WantedBy=default.target
 ```
 
-Replace the paths with your own. `WorkingDirectory` is required so `.env` is
-found. Then run:
+Replace the paths with your own. `WorkingDirectory` doesn't need to point at the
+repo — `scribe.py` loads `~/.config/scribe/.env` directly. Then run:
 
 ```sh
 systemctl --user daemon-reload

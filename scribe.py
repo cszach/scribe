@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 import wave
+from pathlib import Path
 
 import evdev
 import numpy as np
@@ -24,7 +25,10 @@ from dotenv import load_dotenv
 from evdev import InputDevice, ecodes
 from groq import Groq
 
-load_dotenv()
+# .env lives in the XDG config dir so it survives uninstall/reinstall of the
+# data dir at ~/.local/share/scribe.
+_xdg_config = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+load_dotenv(Path(_xdg_config) / "scribe" / ".env")
 
 HOTKEY_NAME = os.environ.get("SCRIBE_HOTKEY", "KEY_RIGHTCTRL").strip()
 HOTKEY = getattr(ecodes, HOTKEY_NAME, None)

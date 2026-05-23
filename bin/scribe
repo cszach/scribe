@@ -7,7 +7,8 @@
 set -euo pipefail
 
 SCRIBE_DIR="__SCRIBE_DIR__"
-ENV_FILE="$SCRIBE_DIR/.env"
+# .env lives under XDG_CONFIG_HOME so it survives uninstall/reinstall.
+ENV_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/scribe/.env"
 SERVICE="scribe.service"
 
 if [[ -t 1 ]]; then
@@ -122,34 +123,34 @@ status_line() {
   case "$state" in
     active)
       if [[ -n "$uptime" && -n "$pid" && "$pid" != "0" ]]; then
-        printf "  %s●%s scribe is %s%srunning%s (pid %s, up %s)\n" \
+        printf "  %s●%s Scribe is %s%srunning%s (pid %s, up %s)\n" \
           "$G" "$N" "$G" "$B" "$N" "$pid" "$uptime"
       elif [[ -n "$pid" && "$pid" != "0" ]]; then
-        printf "  %s●%s scribe is %s%srunning%s (pid %s)\n" \
+        printf "  %s●%s Scribe is %s%srunning%s (pid %s)\n" \
           "$G" "$N" "$G" "$B" "$N" "$pid"
       else
-        printf "  %s●%s scribe is %s%srunning%s\n" "$G" "$N" "$G" "$B" "$N"
+        printf "  %s●%s Scribe is %s%srunning%s\n" "$G" "$N" "$G" "$B" "$N"
       fi
       ;;
     inactive)
-      printf "  %s○%s scribe is %sstopped%s\n" "$D" "$N" "$D" "$N"
+      printf "  %s○%s Scribe is %sstopped%s\n" "$D" "$N" "$D" "$N"
       ;;
     failed)
-      printf "  %s✗%s scribe %sfailed%s — see: journalctl --user -u scribe -n 50\n" \
+      printf "  %s✗%s Scribe %scrashed%s — see logs: journalctl --user -u scribe -n 50\n" \
         "$R" "$N" "$R$B" "$N"
       ;;
     activating)
-      printf "  %s●%s scribe is %sstarting…%s\n" "$Y" "$N" "$Y" "$N"
+      printf "  %s●%s Scribe is %sstarting…%s\n" "$Y" "$N" "$Y" "$N"
       ;;
     deactivating)
-      printf "  %s●%s scribe is %sstopping…%s\n" "$Y" "$N" "$Y" "$N"
+      printf "  %s●%s Scribe is %sstopping…%s\n" "$Y" "$N" "$Y" "$N"
       ;;
     "")
-      printf "  %s✗%s %s not found — run install.sh to enable autostart\n" \
-        "$R" "$N" "$SERVICE"
+      printf "  %s✗%s Scribe isn't set up yet — run install.sh to get started.\n" \
+        "$R" "$N"
       ;;
     *)
-      printf "  %s●%s scribe: %s\n" "$Y" "$N" "$state"
+      printf "  %s●%s Scribe: %s\n" "$Y" "$N" "$state"
       ;;
   esac
 }
@@ -158,13 +159,13 @@ cmd_start() {
   local state
   state=$(systemctl --user is-active "$SERVICE" 2>/dev/null || true)
   if [[ "$state" == "active" ]]; then
-    printf "  %s●%s already running.\n" "$Y" "$N"
+    printf "  %s●%s Scribe is already running.\n" "$Y" "$N"
     status_line
     return 0
   fi
-  printf "  %s→ starting scribe…%s\n" "$D" "$N"
+  printf "  %s→ starting Scribe…%s\n" "$D" "$N"
   if ! systemctl --user start "$SERVICE"; then
-    printf "  %s✗%s failed to start — see: journalctl --user -u scribe -n 50\n" "$R" "$N"
+    printf "  %s✗%s Couldn't start Scribe — see logs: journalctl --user -u scribe -n 50\n" "$R" "$N"
     exit 1
   fi
   status_line
@@ -174,21 +175,21 @@ cmd_stop() {
   local state
   state=$(systemctl --user is-active "$SERVICE" 2>/dev/null || true)
   if [[ "$state" != "active" && "$state" != "activating" ]]; then
-    printf "  %s○%s already stopped.\n" "$D" "$N"
+    printf "  %s○%s Scribe is already stopped.\n" "$D" "$N"
     return 0
   fi
-  printf "  %s→ stopping scribe…%s\n" "$D" "$N"
+  printf "  %s→ stopping Scribe…%s\n" "$D" "$N"
   if ! systemctl --user stop "$SERVICE"; then
-    printf "  %s✗%s failed to stop.\n" "$R" "$N"
+    printf "  %s✗%s Couldn't stop Scribe.\n" "$R" "$N"
     exit 1
   fi
-  printf "  %s○%s scribe %sstopped%s.\n" "$D" "$N" "$D" "$N"
+  printf "  %s○%s Scribe %sstopped%s.\n" "$D" "$N" "$D" "$N"
 }
 
 cmd_restart() {
-  printf "  %s→ restarting scribe…%s\n" "$D" "$N"
+  printf "  %s→ restarting Scribe…%s\n" "$D" "$N"
   if ! systemctl --user restart "$SERVICE"; then
-    printf "  %s✗%s failed to restart — see: journalctl --user -u scribe -n 50\n" "$R" "$N"
+    printf "  %s✗%s Couldn't restart Scribe — see logs: journalctl --user -u scribe -n 50\n" "$R" "$N"
     exit 1
   fi
   status_line
@@ -198,12 +199,13 @@ cmd_test() {
   local py="$SCRIBE_DIR/.venv/bin/python"
   local helper="$SCRIBE_DIR/scribe_test.py"
   if [[ ! -x "$py" ]]; then
-    printf "  %s✗%s venv not found at %s/.venv — run install.sh first\n" \
-      "$R" "$N" "$SCRIBE_DIR" >&2
+    printf "  %s✗%s Scribe isn't fully installed yet — run install.sh first.\n" \
+      "$R" "$N" >&2
     exit 1
   fi
   if [[ ! -f "$helper" ]]; then
-    printf "  %s✗%s %s missing — repo is incomplete\n" "$R" "$N" "$helper" >&2
+    printf "  %s✗%s Can't find the test script at %s — the repo may be incomplete.\n" \
+      "$R" "$N" "$helper" >&2
     exit 1
   fi
   exec "$py" "$helper"
@@ -262,16 +264,16 @@ usage() {
   print_logo
   printf "  %sUsage:%s %sscribe%s <command> [args]\n\n" "$B" "$N" "$C$B" "$N"
   printf "  %sCommands:%s\n" "$B" "$N"
-  printf "      %sstart%s              Start the scribe systemd user service.\n" "$C$B" "$N"
-  printf "      %sstop%s               Stop the scribe systemd user service.\n" "$C$B" "$N"
-  printf "      %srestart%s            Restart the scribe systemd user service.\n" "$C$B" "$N"
-  printf "      %sstatus%s             Show scribe service status.\n" "$C$B" "$N"
-  printf "      %stest%s               Record once and transcribe to verify the pipeline.\n" "$C$B" "$N"
-  printf "      %slist%s               List vocabulary terms in SCRIBE_PROMPT.\n" "$C$B" "$N"
-  printf "      %sadd%s <term>…        Add terms to SCRIBE_PROMPT (quote multi-word).\n" "$C$B" "$N"
-  printf "      %sremove%s <term>…     Remove matching terms (case-insensitive).\n" "$C$B" "$N"
-  printf "      %sreinstall%s          Refresh CLI, sync Python deps, restart daemon if running.\n" "$C$B" "$N"
-  printf "      %suninstall%s [-y]     Remove the systemd unit and the CLI wrapper.\n\n" "$C$B" "$N"
+  printf "      %sstart%s              Start Scribe.\n" "$C$B" "$N"
+  printf "      %sstop%s               Stop Scribe.\n" "$C$B" "$N"
+  printf "      %srestart%s            Restart Scribe.\n" "$C$B" "$N"
+  printf "      %sstatus%s             Show whether Scribe is running.\n" "$C$B" "$N"
+  printf "      %stest%s               Record a clip and show the transcript.\n" "$C$B" "$N"
+  printf "      %slist%s               Show your custom vocabulary.\n" "$C$B" "$N"
+  printf "      %sadd%s <word>…        Add words to your custom vocabulary.\n" "$C$B" "$N"
+  printf "      %sremove%s <word>…     Remove words from your custom vocabulary.\n" "$C$B" "$N"
+  printf "      %supdate%s             Update Scribe to the latest version.\n" "$C$B" "$N"
+  printf "      %suninstall%s [-y]     Uninstall Scribe (asks before removing anything).\n\n" "$C$B" "$N"
   printf "  %s.env:%s %s\n\n" "$D" "$N" "$ENV_FILE"
 }
 
@@ -340,11 +342,11 @@ _vocab_join_into() {
 _vocab_restart_if_active() {
   systemctl --user is-active --quiet "$SERVICE" 2>/dev/null || return 0
   echo
-  printf "  %s→ restarting scribe to apply…%s\n" "$D" "$N"
+  printf "  %s→ restarting Scribe to apply the change…%s\n" "$D" "$N"
   if systemctl --user restart "$SERVICE"; then
-    printf "  %s✓%s Service restarted\n" "$G" "$N"
+    printf "  %s✓%s Scribe restarted\n" "$G" "$N"
   else
-    printf "  %s✗%s restart failed — see: journalctl --user -u scribe -n 50\n" "$R" "$N" >&2
+    printf "  %s✗%s Couldn't restart Scribe — see: journalctl --user -u scribe -n 50\n" "$R" "$N" >&2
   fi
 }
 
@@ -358,12 +360,12 @@ cmd_list() {
   _vocab_split_into terms "$current"
 
   if (( ${#terms[@]} == 0 )); then
-    printf "  %s○%s No vocabulary terms set.\n" "$D" "$N"
-    printf "  %sAdd with:%s scribe add <term>...\n" "$D" "$N"
+    printf "  %s○%s Your custom vocabulary is empty.\n" "$D" "$N"
+    printf "  %sAdd words with:%s scribe add <word>...\n" "$D" "$N"
     return 0
   fi
 
-  printf "  %s%sVocabulary terms (%d):%s\n" "$B" "$C" "${#terms[@]}" "$N"
+  printf "  %s%sCustom vocabulary (%d):%s\n" "$B" "$C" "${#terms[@]}" "$N"
   local t
   for t in "${terms[@]}"; do
     printf "    %s•%s %s\n" "$D" "$N" "$t"
@@ -372,8 +374,8 @@ cmd_list() {
 
 cmd_add() {
   if [[ $# -eq 0 ]]; then
-    echo "scribe add: nothing to add" >&2
-    echo "usage: scribe add <term>... — wrap multi-word terms in quotes" >&2
+    echo "scribe add: tell me which words to add" >&2
+    echo "usage: scribe add <word>... — wrap multi-word phrases in quotes" >&2
     exit 2
   fi
   if [[ ! -f "$ENV_FILE" ]]; then
@@ -408,7 +410,7 @@ cmd_add() {
   done
 
   if (( ${#added[@]} == 0 )); then
-    printf "  %s○%s Nothing to add — all terms already in SCRIBE_PROMPT.\n" "$D" "$N"
+    printf "  %s○%s Nothing to add — those words are already in your vocabulary.\n" "$D" "$N"
     return 0
   fi
 
@@ -423,15 +425,15 @@ cmd_add() {
   _vocab_write_line "$line_idx" "SCRIBE_PROMPT=$new_value"
 
   printf "  %s✓%s Added: %s%s%s\n\n" "$G" "$N" "$B" "$joined_new" "$N"
-  printf "  %sSCRIBE_PROMPT now reads:%s\n" "$D" "$N"
+  printf "  %sYour vocabulary is now:%s\n" "$D" "$N"
   printf "  %s%s%s\n" "$C" "$new_value" "$N"
   _vocab_restart_if_active
 }
 
 cmd_remove() {
   if [[ $# -eq 0 ]]; then
-    echo "scribe remove: nothing to remove" >&2
-    echo "usage: scribe remove <term>... — wrap multi-word terms in quotes" >&2
+    echo "scribe remove: tell me which words to remove" >&2
+    echo "usage: scribe remove <word>... — wrap multi-word phrases in quotes" >&2
     exit 2
   fi
   if [[ ! -f "$ENV_FILE" ]]; then
@@ -445,7 +447,7 @@ cmd_remove() {
   current="${parsed#*	}"
 
   if [[ -z "$current" ]]; then
-    printf "  %s○%s No vocabulary to remove — SCRIBE_PROMPT is empty.\n" "$D" "$N"
+    printf "  %s○%s Nothing to remove — your custom vocabulary is empty.\n" "$D" "$N"
     return 0
   fi
 
@@ -483,8 +485,8 @@ cmd_remove() {
   if (( ${#removed[@]} == 0 )); then
     local notfound_joined
     _vocab_join_into notfound_joined "${notfound[@]}"
-    printf "  %s⚠%s  Not found: %s%s%s\n\n" "$Y" "$N" "$B" "$notfound_joined" "$N"
-    printf "  %sVocabulary unchanged. Current terms (%d):%s\n" "$D" "${#existing[@]}" "$N"
+    printf "  %s⚠%s  Not in your vocabulary: %s%s%s\n\n" "$Y" "$N" "$B" "$notfound_joined" "$N"
+    printf "  %sNo changes. Current vocabulary (%d):%s\n" "$D" "${#existing[@]}" "$N"
     for t in "${existing[@]}"; do
       printf "    %s•%s %s\n" "$D" "$N" "$t"
     done
@@ -502,11 +504,11 @@ cmd_remove() {
   if (( ${#notfound[@]} > 0 )); then
     local notfound_joined
     _vocab_join_into notfound_joined "${notfound[@]}"
-    printf "  %s⚠%s  Not found: %s\n" "$Y" "$N" "$notfound_joined"
+    printf "  %s⚠%s  Not in your vocabulary: %s\n" "$Y" "$N" "$notfound_joined"
   fi
 
   echo
-  printf "  %sSCRIBE_PROMPT now reads:%s\n" "$D" "$N"
+  printf "  %sYour vocabulary is now:%s\n" "$D" "$N"
   if [[ -n "$new_value" ]]; then
     printf "  %s%s%s\n" "$C" "$new_value" "$N"
   else
@@ -515,75 +517,31 @@ cmd_remove() {
   _vocab_restart_if_active
 }
 
-cmd_reinstall() {
-  local src="$SCRIBE_DIR/bin/scribe"
-  local bin_dir="$HOME/.local/bin"
-  local dest="$bin_dir/scribe"
-
-  if [[ ! -f "$src" ]]; then
-    printf "  %s✗%s source CLI missing at %s — repo is incomplete\n" \
-      "$R" "$N" "$src" >&2
+cmd_update() {
+  local installer="$SCRIBE_DIR/install.sh"
+  if [[ ! -f "$installer" ]]; then
+    printf "  %s✗%s Can't find the installer at %s — the Scribe folder looks broken.\n" \
+      "$R" "$N" "$installer" >&2
     exit 1
   fi
 
-  # 1. Refresh the CLI wrapper.
-  # Build the placeholder at runtime so install.sh's own templating pass
-  # doesn't replace this literal inside the installed copy — otherwise
-  # subsequent reinstalls would have nothing to substitute. Linux keeps this
-  # file's inode alive while we're running, so overwriting it is safe.
-  mkdir -p "$bin_dir"
-  local placeholder
-  placeholder=$(printf '__%s__' 'SCRIBE_DIR')
-  local template
-  template=$(<"$src")
-  printf '%s\n' "${template//$placeholder/$SCRIBE_DIR}" > "$dest"
-  chmod +x "$dest"
-  printf "  %s✓%s CLI wrapper updated %s(%s)%s\n" "$G" "$N" "$D" "$dest" "$N"
-
-  # 2. Sync Python dependencies. The service points at $SCRIBE_DIR/scribe.py
-  # directly, so the daemon code itself is always current — we just need to
-  # make sure its dependencies match requirements.txt.
-  local venv_pip="$SCRIBE_DIR/.venv/bin/pip"
-  local req="$SCRIBE_DIR/requirements.txt"
-  if [[ ! -x "$venv_pip" ]]; then
-    printf "  %s⚠%s  No venv at %s/.venv — skipping dependency sync. Run install.sh first.\n" \
-      "$Y" "$N" "$SCRIBE_DIR"
-  elif [[ ! -f "$req" ]]; then
-    printf "  %s⚠%s  No requirements.txt — skipping dependency sync.\n" "$Y" "$N"
-  else
-    printf "  %s→ syncing Python dependencies…%s\n" "$D" "$N"
-    local log
-    log=$(mktemp)
-    if "$venv_pip" install -q -r "$req" >"$log" 2>&1; then
-      printf "  %s✓%s Dependencies in sync with requirements.txt\n" "$G" "$N"
-    else
-      printf "  %s✗%s pip install failed:\n" "$R" "$N" >&2
-      cat "$log" >&2
-      rm -f "$log"
+  # Pull latest code if this is a git checkout. Manual installs skip this.
+  if [[ -d "$SCRIBE_DIR/.git" ]]; then
+    printf "  %s→ checking for updates…%s\n" "$D" "$N"
+    if ! git -C "$SCRIBE_DIR" pull --ff-only; then
+      echo >&2
+      printf "  %s✗%s Couldn't pull updates. If you've edited files in %s,\n" \
+        "$R" "$N" "$SCRIBE_DIR" >&2
+      printf "      commit/stash them — or remove the folder and reinstall.\n" >&2
       exit 1
     fi
-    rm -f "$log"
-  fi
-
-  # 3. Restart the daemon if it's running so scribe.py changes take effect.
-  local state
-  state=$(systemctl --user is-active "$SERVICE" 2>/dev/null || true)
-  if [[ "$state" == "active" ]]; then
-    printf "  %s→ restarting scribe…%s\n" "$D" "$N"
-    if systemctl --user restart "$SERVICE"; then
-      printf "  %s✓%s Service restarted\n" "$G" "$N"
-    else
-      printf "  %s✗%s restart failed — see: journalctl --user -u scribe -n 50\n" "$R" "$N" >&2
-      exit 1
-    fi
-  elif systemctl --user is-enabled --quiet "$SERVICE" 2>/dev/null; then
-    printf "  %s○%s Service installed but not running — start with: scribe start\n" "$D" "$N"
   else
-    printf "  %s○%s No systemd service (skip restart). Run install.sh to set up autostart.\n" "$D" "$N"
+    printf "  %s○%s Skipping git pull — %s isn't a git checkout.\n" "$D" "$N" "$SCRIBE_DIR"
   fi
 
-  echo
-  printf "  %s%sReinstall complete.%s\n" "$B" "$G" "$N"
+  # Hand off to install.sh — single source of truth for install behavior.
+  # It's idempotent: existing .env/venv/unit file get refreshed, no prompts.
+  exec bash "$installer"
 }
 
 cmd_uninstall() {
@@ -602,15 +560,21 @@ cmd_uninstall() {
 
   local unit_file="$HOME/.config/systemd/user/$SERVICE"
   local self_path="$HOME/.local/bin/scribe"
-  local items=()
+  # Only delete the Scribe folder if it lives at the canonical XDG location.
+  # If the user cloned it themselves to e.g. ~/code/scribe, leaving it alone
+  # is the right thing — that's their working directory, not ours to remove.
+  local xdg_dir="${XDG_DATA_HOME:-$HOME/.local/share}/scribe"
+  local folder_managed=0
+  [[ "$SCRIBE_DIR" == "$xdg_dir" ]] && folder_managed=1
 
-  [[ -f "$unit_file" ]] && items+=("systemd unit:  $unit_file")
-  [[ -f "$self_path" ]] && items+=("CLI wrapper:   $self_path")
+  local items=()
+  [[ -f "$unit_file" ]] && items+=("auto-start setup:  $unit_file")
+  [[ -f "$self_path" ]] && items+=("scribe command:    $self_path")
+  (( folder_managed )) && [[ -d "$SCRIBE_DIR" ]] && \
+    items+=("Scribe folder:     $SCRIBE_DIR")
 
   if (( ${#items[@]} == 0 )); then
-    echo "Nothing to uninstall — no unit file or CLI wrapper found."
-    printf "Repo at %s is untouched (delete with: rm -rf %s).\n" \
-      "$SCRIBE_DIR" "$SCRIBE_DIR"
+    echo "Nothing to uninstall — Scribe doesn't seem to be set up on this system."
     return 0
   fi
 
@@ -621,8 +585,12 @@ cmd_uninstall() {
   done
   echo
   printf "%sWill NOT touch:%s\n" "$B" "$N"
-  printf "  %s-%s repo at %s (with .venv, .env, scribe.py)\n" "$D" "$N" "$SCRIBE_DIR"
-  printf "  %s-%s system packages (ydotool, wl-clipboard)\n" "$D" "$N"
+  if (( ! folder_managed )); then
+    printf "  %s-%s the Scribe folder at %s (delete it yourself if you want it gone)\n" "$D" "$N" "$SCRIBE_DIR"
+  fi
+  [[ -f "$ENV_FILE" ]] && \
+    printf "  %s-%s your config at %s (so reinstall keeps your API key)\n" "$D" "$N" "$ENV_FILE"
+  printf "  %s-%s the ydotool and wl-clipboard packages\n" "$D" "$N"
   printf "  %s-%s your membership in the 'input' group\n" "$D" "$N"
   echo
 
@@ -637,28 +605,38 @@ cmd_uninstall() {
 
   if [[ -f "$unit_file" ]]; then
     if systemctl --user is-active --quiet "$SERVICE" 2>/dev/null; then
-      printf "  %s→ stopping scribe…%s\n" "$D" "$N"
+      printf "  %s→ stopping Scribe…%s\n" "$D" "$N"
       systemctl --user stop "$SERVICE" || true
     fi
     if systemctl --user is-enabled --quiet "$SERVICE" 2>/dev/null; then
-      printf "  %s→ disabling autostart…%s\n" "$D" "$N"
+      printf "  %s→ turning off auto-start…%s\n" "$D" "$N"
       systemctl --user disable "$SERVICE" >/dev/null 2>&1 || true
     fi
     rm -f "$unit_file"
     systemctl --user daemon-reload || true
-    printf "  %s✓%s removed %s\n" "$G" "$N" "$unit_file"
+    printf "  %s✓%s Removed %s\n" "$G" "$N" "$unit_file"
   fi
 
-  # Remove the wrapper last; Linux keeps the inode alive while we're running.
+  # Remove the wrapper before the folder — Linux keeps the inode alive while
+  # we're running, so overwriting/deleting the file we're executing is safe.
   if [[ -f "$self_path" ]]; then
     rm -f "$self_path"
-    printf "  %s✓%s removed %s\n" "$G" "$N" "$self_path"
+    printf "  %s✓%s Removed %s\n" "$G" "$N" "$self_path"
+  fi
+
+  if (( folder_managed )) && [[ -d "$SCRIBE_DIR" ]]; then
+    rm -rf "$SCRIBE_DIR"
+    printf "  %s✓%s Removed %s\n" "$G" "$N" "$SCRIBE_DIR"
   fi
 
   echo
   printf "  %s%sScribe uninstalled.%s\n" "$B" "$G" "$N"
-  printf "  %sTo finish, delete the repo (contains .env with your GROQ_API_KEY):%s\n" "$D" "$N"
-  printf "    %scd && rm -rf %s%s\n" "$D" "$SCRIBE_DIR" "$N"
+  if (( ! folder_managed )); then
+    printf "  %sIf you want to delete the Scribe folder too:%s\n" "$D" "$N"
+    printf "    %srm -rf %s%s\n" "$D" "$SCRIBE_DIR" "$N"
+    printf "  %sYour API key in %s is also kept — delete it manually if you want it gone.%s\n" \
+      "$D" "$ENV_FILE" "$N"
+  fi
 }
 
 case "${1:-}" in
@@ -668,7 +646,7 @@ case "${1:-}" in
   status)    cmd_status ;;
   test)      cmd_test ;;
   list)      cmd_list ;;
-  reinstall) cmd_reinstall ;;
+  update)    cmd_update ;;
   add)
     shift
     cmd_add "$@"
