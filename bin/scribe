@@ -43,7 +43,7 @@ select_yes_no() {
   local count=2
   local key rest old_stty i ans
 
-  if [[ ! -t 0 ]] || [[ ! -e /dev/tty ]]; then
+  if [[ ! -e /dev/tty ]]; then
     local hint="Y/n"
     (( selected == 1 )) && hint="y/N"
     printf "  %s%s%s %s[%s]%s: " "$C" "$prompt" "$N" "$D" "$hint" "$N" >&2

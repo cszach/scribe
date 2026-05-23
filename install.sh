@@ -122,7 +122,7 @@ select_menu() {
   # Fall back to numbered input only when there's no usable terminal at all.
   # NOTE: don't test [[ -t 1 ]] — when called via $(select_menu ...), stdout is
   # a pipe even in an interactive shell, which masked the arrow-key path.
-  if [[ ! -t 0 ]] || [[ ! -e /dev/tty ]]; then
+  if [[ ! -e /dev/tty ]]; then
     printf "  %s\n" "$prompt" >&2
     for i in "${!options[@]}"; do
       printf "    %d) %s\n" "$((i + 1))" "${options[i]}" >&2
@@ -198,7 +198,7 @@ select_yes_no() {
   local count=2
   local key rest old_stty i
 
-  if [[ ! -t 0 ]] || [[ ! -e /dev/tty ]]; then
+  if [[ ! -e /dev/tty ]]; then
     # Fallback: traditional [Y/n] / [y/N] prompt
     local hint="Y/n"
     (( selected == 1 )) && hint="y/N"
@@ -275,7 +275,7 @@ read_secret() {
   local prompt=$1
   local value="" key old_stty
 
-  if [[ ! -t 0 ]] || [[ ! -e /dev/tty ]]; then
+  if [[ ! -e /dev/tty ]]; then
     # Fallback: bash's silent read (no per-char feedback)
     printf "%s" "$prompt" >&2
     read -rs value
@@ -527,8 +527,14 @@ else
   printf "  %sCustom vocabulary%s — words that often get transcribed wrong\n" "$C" "$N"
   printf "  (project names, libraries, coworker names). Comma-separated; press\n"
   printf "  enter to skip.\n"
-  printf "  %s>%s " "$C" "$N"
-  read -r PROMPT_VOCAB
+  # Read from /dev/tty in case stdin is a piped install (curl ... | bash).
+  if [[ -e /dev/tty ]]; then
+    printf "  %s>%s " "$C" "$N" >/dev/tty
+    IFS= read -r PROMPT_VOCAB </dev/tty || PROMPT_VOCAB=""
+  else
+    printf "  %s>%s " "$C" "$N"
+    IFS= read -r PROMPT_VOCAB || PROMPT_VOCAB=""
+  fi
 
   echo
   if (( DRY_RUN )); then
